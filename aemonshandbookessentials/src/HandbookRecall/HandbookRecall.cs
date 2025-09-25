@@ -18,19 +18,20 @@ public class HandbookRecall : IPatchModule
     // Called during Start when this module is enabled. Apply Harmony patches here.
     public void Register(Harmony harmony, ICoreClientAPI clientApi)
     {
-        if (harmony == null) throw new ArgumentNullException(nameof(harmony));
-        if (clientApi == null) throw new ArgumentNullException(nameof(clientApi));
+        ArgumentNullException.ThrowIfNull(harmony);
+        ArgumentNullException.ThrowIfNull(clientApi);
 
         try
         {
             // Apply all Harmony patches found in this assembly.
             // Replace with targeted Patch / Unpatch calls for finer control.
-            harmony.PatchAll(Assembly.GetExecutingAssembly());
-            clientApi.Logger.Notification($"HandbookRecall: registered patches.");
+            harmony.PatchAll(typeof(HandbookPatches).GetTypeInfo().Assembly);
+            clientApi.Logger.Notification($"HandbookRecall: patches applied.");
         }
         catch (Exception ex)
         {
             clientApi.Logger.Warning($"HandbookRecall: failed to register patches: {ex.Message}");
+            throw;
         }
     }
 
