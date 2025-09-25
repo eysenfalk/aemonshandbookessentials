@@ -14,7 +14,7 @@ public sealed class AemonshandbookessentialsModSystem : ModSystem
     // Harmony instance for patching
     private Harmony? _harmony;
 
-    private readonly List<IPatchModule> _registered = new();
+    private readonly List<IPatchModule> _registered = [];
 
     public override void Start(ICoreAPI api)
     {
@@ -32,7 +32,7 @@ public sealed class AemonshandbookessentialsModSystem : ModSystem
 
         // Load mod configuration
         var config = ModConfig.Load(api, "aemonshandbookessentials.json");
-        var enabled = config?.EnabledModules ?? new List<string>();
+        var enabled = config?.EnabledModules ?? [];
 
         var candidates = new List<IPatchModule>
         {

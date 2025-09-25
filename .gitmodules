@@ -1,3 +1,12 @@
-[submodule "externals/vsapi"]
-	path = externals/vsapi
+[submodule "externals/VSSurvivalMod"]
+	path = externals/VSSurvivalMod
+	url = https://github.com/anegostudios/vssurvivalmod.git
+[submodule "externals/VSCreativeMod"]
+	path = externals/VSCreativeMod
+	url = https://github.com/anegostudios/vscreativemod.git
+[submodule "externals/VSEssentials"]
+	path = externals/VSEssentials
+	url = https://github.com/anegostudios/vsessentialsmod.git
+[submodule "externals/VintagestoryApi"]
+	path = externals/VintagestoryApi
 	url = https://github.com/anegostudios/vsapi.git

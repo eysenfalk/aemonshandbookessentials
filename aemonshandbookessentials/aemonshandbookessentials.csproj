@@ -1,4 +1,5 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+﻿
+<Project Sdk="Microsoft.NET.Sdk">
     <!-- Mod info -->
     <PropertyGroup>
         <ModName>aemonshandbookessentials</ModName>
@@ -61,13 +62,18 @@
     <!-- Project item includes -->
     <ItemGroup>
         <Folder Include="resources\assets\aemonshandbookessentials" />
+        <Folder Include="temp\" />
     </ItemGroup>
 
     <!-- Formatting JSON files -->
     <PropertyGroup>
         <Scripts>$(ProjectDir)\scripts</Scripts>
         <Formatter>$(Scripts)\formatter.ps1</Formatter>
+        <JsonIndent>2</JsonIndent>
+        <JsonMaxLineLength>200</JsonMaxLineLength>
+        <!-- Note: BuildProjectReferences is controlled below by the UseProjectReferences toggle -->
     </PropertyGroup>
+
     <ItemGroup>
         <AssetsToFormat Include="$(AssetsDir)\$(ModId)\blocktypes" />
         <AssetsToFormat Include="$(AssetsDir)\$(ModId)\itemtypes" />
@@ -80,29 +86,64 @@
     <ItemGroup>
         <!-- ImGui for debug tools (requires ImGui mod installed if you call ImGui methods) -->
         <PackageReference Include="VSImGui" Version="0.0.6" />
-        <!-- Vintage Story libraries -->
+        <!-- Vintage Story libraries (keep VintagestoryLib here — no project counterpart) -->
         <Reference Include="VintagestoryLib" HintPath="$(GameDirectory)/VintagestoryLib.dll" Private="false" />
-        <Reference Include="VintagestoryAPI" HintPath="$(GameDirectory)/VintagestoryAPI.dll" Private="false" />
-        <Reference Include="VSSurvivalMod" HintPath="$(GameDirectory)/Mods/VSSurvivalMod.dll" Private="false" />
-        <Reference Include="VSEssentials" HintPath="$(GameDirectory)/Mods/VSEssentials.dll" Private="false" />
-        <Reference Include="VSCreativeMod" HintPath="$(GameDirectory)/Mods/VSCreativeMod.dll" Private="false" />
+        <!-- Other libs -->
         <Reference Include="Newtonsoft.Json" HintPath="$(GameDirectory)/Lib/Newtonsoft.Json.dll" Private="false" />
         <Reference Include="0Harmony" HintPath="$(GameDirectory)/Lib/0Harmony.dll" Private="false" />
         <Reference Include="protobuf-net" HintPath="$(GameDirectory)/Lib/protobuf-net.dll" Private="false" />
         <Reference Include="cairo-sharp" HintPath="$(GameDirectory)/Lib/cairo-sharp.dll" Private="false" />
         <Reference Include="JsonDiffPatch" HintPath="$(GameDirectory)/Lib/JsonDiffPatch.dll" Private="false" />
-        <Reference Include="cairo-sharp" HintPath="$(GameDirectory)/Lib/cairo-sharp.dll" Private="false" />
         <Reference Include="Tavis.JsonPatch" HintPath="$(GameDirectory)/Lib/Tavis.JsonPatch.dll" Private="false" />
         <Reference Include="SkiaSharp" HintPath="$(GameDirectory)/Lib/SkiaSharp.dll" Private="false" />
         <Reference Include="$(GameDirectory)/Lib/OpenTK*.dll" Private="false" />
-        <!-- External libraries -->
-        <Reference Include="$(ExternalLibDir)/**/*.dll" Private="false" Condition="'$(ExternalLibDir)' != ''" />
-    </ItemGroup>
-    <ItemGroup>
-      <ProjectReference Include="..\externals\vsapi\VintagestoryAPI.csproj" />
+        <!-- External libraries fallback (kept, but will only be used in DLL-mode below) -->
     </ItemGroup>
 
-    <!-- Creating local settings file -->
+    <!-- Toggle: Use project refs for IDE design-time, DLL references for normal builds -->
+    <PropertyGroup>
+        <!-- IDE design-time => prefer project refs for navigation/refactor -->
+        <UseProjectReferences Condition="'$(DesignTimeBuild)' == 'true'">true</UseProjectReferences>
+        <!-- Default to DLL-mode for actual builds unless explicitly overridden -->
+        <UseProjectReferences Condition="'$(UseProjectReferences)' == ''">false</UseProjectReferences>
+
+        <!-- Ensure MSBuild builds project references only when UseProjectReferences is true -->
+        <BuildProjectReferences Condition="'$(UseProjectReferences)' == 'true'">true</BuildProjectReferences>
+        <BuildProjectReferences Condition="'$(UseProjectReferences)' != 'true'">false</BuildProjectReferences>
+    </PropertyGroup>
+
+    <!-- When in IDE design-time, include project references so Rider provides file navigation -->
+    <ItemGroup Condition="'$(UseProjectReferences)' == 'true'">
+        <ProjectReference Include="..\externals\VintagestoryApi\VintagestoryAPI.csproj" />
+        <ProjectReference Include="..\externals\VSSurvivalMod\VSSurvivalMod.csproj" />
+        <ProjectReference Include="..\externals\VSEssentials\VSEssentialsMod.csproj" />
+        <ProjectReference Include="..\externals\VSCreativeMod\VSCreativeMod.csproj" />
+    </ItemGroup>
+
+    <!-- For normal builds (including Rider Debug), reference prebuilt DLLs so compiler sees exactly one definition -->
+    <ItemGroup Condition="'$(UseProjectReferences)' != 'true'">
+        <Reference Include="VintagestoryAPI">
+            <HintPath>$(GameDirectory)\VintagestoryAPI.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="VSSurvivalMod">
+            <HintPath>$(GameDirectory)\Mods\VSSurvivalMod.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="VSEssentials">
+            <HintPath>$(GameDirectory)\Mods\VSEssentials.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+        <Reference Include="VSCreativeMod">
+            <HintPath>$(GameDirectory)\Mods\VSCreativeMod.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
+
+        <!-- include any external DLLs placed in external/ when in DLL-mode -->
+        <Reference Include="$(ExternalLibDir)/**/*.dll" Private="false" Condition="'$(ExternalLibDir)' != ''" />
+    </ItemGroup>
+
+    <!-- Creates local settings file -->
     <Target Name="EnsureSettingsJson" BeforeTargets="ModInfo" Condition="!Exists('Properties\localSettings.props')">
         <MakeDir Directories="Properties" />
         <WriteLinesToFile File="Properties\localSettings.props" Overwrite="true" Lines="&lt;Project&gt;&#xD;&#xA;  &lt;PropertyGroup&gt;&#xD;&#xA;    &lt;RunFormatter&gt;false&lt;/RunFormatter&gt;&#xD;&#xA;    &lt;DataFolderName&gt;VintagestoryData&lt;/DataFolderName&gt;&#xD;&#xA;    &lt;GameDirectory&gt;&lt;/GameDirectory&gt;&#xD;&#xA;    &lt;PackageDevBuild&gt;false&lt;/PackageDevBuild&gt;&#xD;&#xA;    &lt;EnterWorldOnStartup&gt;false&lt;/EnterWorldOnStartup&gt;&#xD;&#xA;    &lt;/PropertyGroup&gt;&#xD;&#xA;&lt;/Project&gt;" />
@@ -167,6 +208,7 @@
         <Delete Files="$(ReleasePath)" />
         <ZipDirectory SourceDirectory="$(OutputPath)" DestinationFile="$(ReleasePath)" />
     </Target>
+
     <Target Name="ZipFilesDev" AfterTargets="Build" Condition=" '$(Configuration)' == 'Debug' and '$(PackageDevBuild)' == 'true'">
         <Message Text="Pachaging into '$(ReleaseFile)'" Importance="high" />
         <Delete Files="$(OutputPath)\$(ModId).dll" Condition="'$(ModType)' != 'code'" />
