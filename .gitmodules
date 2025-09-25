@@ -1,0 +1,3 @@
+[submodule "externals/vsapi"]
+	path = externals/vsapi
+	url = https://github.com/anegostudios/vsapi.git

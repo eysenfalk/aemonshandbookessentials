@@ -5,7 +5,7 @@ namespace AemonsHandbookEssentials.Utils;
 public class ModConfig
 {
     // Minimal config holder. Replace with persistent load/save as needed.
-    public List<string> EnabledModules { get; set; } = new() { "HandbookRecall" };
+    public List<string> EnabledModules { get; set; } = ["HandbookRecall"];
 
     // Minimal loader: returns defaults. Swap to real file I/O when ready.
     public static ModConfig Load(ICoreAPI api, string filename)
