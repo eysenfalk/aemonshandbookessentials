@@ -41,7 +41,7 @@ namespace AemonsHandbookEssentials.HandbookHistory
                     var historyTab = new HandbookTab
                     {
                         DataInt = insertIndex,
-                        Name = Lang.Get("handbook-category-history", "History"),
+                        Name = "Recently Viewed",
                         CategoryCode = "history"
                     };
 
@@ -62,6 +62,16 @@ namespace AemonsHandbookEssentials.HandbookHistory
                     }
 
                     __result = tabs.ToArray();
+                }
+                
+                // Also fix the "Items" category name if it exists
+                for (int i = 0; i < tabs.Count; i++)
+                {
+                    if (tabs[i] is HandbookTab ht && ht.CategoryCode == "items")
+                    {
+                        ht.Name = "Items Only";
+                        break;
+                    }
                 }
             }
             catch (Exception ex)
@@ -224,42 +234,31 @@ namespace AemonsHandbookEssentials.HandbookHistory
                     return true; // let original run
                 }
                 
-                // Debug: Log when we're showing history
-                try
-                {
-                    var capi = trav.Field("capi").GetValue<ICoreClientAPI>();
-                    lock (RecentPages)
-                    {
-                        capi?.Logger?.Debug($"HandbookHistory: Showing history tab with {RecentPages.Count} recent pages");
-                        foreach (var pageKey in RecentPages.Take(5))
-                        {
-                            capi?.Logger?.Debug($"  - Recent page: {pageKey}");
-                        }
-                    }
-                }
-                catch { }
-
-                // Handle history category by showing MRU pages
-                string? searchText = trav.Field("currentSearchText").GetValue<string?>();
+                // Handle history category by showing MRU pages with proper search support
+                var capi = trav.Field("capi").GetValue<ICoreClientAPI>();
+                var currentSearchText = trav.Field("currentSearchText").GetValue<string>() ?? "";
                 var allPages = trav.Field("allHandbookPages").GetValue<List<GuiHandbookPage>>();
                 var shownPages = trav.Field("shownHandbookPages").GetValue<List<IFlatListItem>>();
                 var loading = trav.Field("loadingPagesAsync").GetValue<bool>();
                 var overviewGui = trav.Field("overviewGui").GetValue();
-                var listHeight = trav.Field("listHeight").GetValue<double>();
 
                 if (shownPages == null) return true; // defensive
                 shownPages.Clear();
 
                 if (!loading && allPages != null)
                 {
-                    var map = new Dictionary<string, GuiHandbookPage>(StringComparer.OrdinalIgnoreCase);
+                    // Build lookup maps to handle different key formats
+                    var pageMap = new Dictionary<string, GuiHandbookPage>(StringComparer.OrdinalIgnoreCase);
+                    
                     foreach (var p in allPages)
                     {
                         try
                         {
                             var key = GetPageKey(p);
-                            if (string.IsNullOrEmpty(key)) continue;
-                            if (!map.ContainsKey(key)) map[key] = p;
+                            if (!string.IsNullOrEmpty(key) && !pageMap.ContainsKey(key)) 
+                            {
+                                pageMap[key] = p;
+                            }
                         }
                         catch { }
                     }
@@ -270,40 +269,108 @@ namespace AemonsHandbookEssentials.HandbookHistory
                         snapshot = RecentPages.ToList();
                     }
 
-                    string low = searchText?.ToLowerInvariant() ?? string.Empty;
+                    // Process search text like vanilla does (convert to lowercase, handle search terms)
+                    string searchLower = currentSearchText.ToLowerInvariant();
+                    bool hasSearch = !string.IsNullOrEmpty(searchLower);
+                    
+                    var foundPages = new List<GuiHandbookPage>();
 
                     foreach (string key in snapshot)
                     {
-                        if (!map.TryGetValue(key, out GuiHandbookPage? page) || page == null) continue;
-                        if (!string.IsNullOrEmpty(low))
+                        if (!pageMap.TryGetValue(key, out var page)) continue;
+                        
+                        // Apply search filtering if there's search text
+                        if (hasSearch)
                         {
-                            var target = (page.ToString() ?? string.Empty).ToLowerInvariant();
-                            if (!target.Contains(low)) continue;
+                            // Use the same search logic as vanilla - check if page matches search
+                            bool matches = false;
+                            try
+                            {
+                                // Check if the page title/content contains search text
+                                var pageText = page.ToString()?.ToLowerInvariant() ?? "";
+                                if (pageText.Contains(searchLower))
+                                {
+                                    matches = true;
+                                }
+                                
+                                // Also try GetTextMatchWeight if available
+                                var matchMethod = page.GetType().GetMethod("GetTextMatchWeight");
+                                if (matchMethod != null)
+                                {
+                                    var weight = (float)matchMethod.Invoke(page, new object[] { searchLower });
+                                    if (weight > 0) matches = true;
+                                }
+                            }
+                            catch { }
+                            
+                            if (!matches) continue;
                         }
 
-                        shownPages.Add(page);
+                        foundPages.Add(page);
                     }
+                    
+                    // Add found pages to shownPages
+                    shownPages.AddRange(foundPages);
+                    
+                    capi?.Logger?.Debug($"HandbookHistory: Showing {foundPages.Count} history pages (search: '{currentSearchText}')");
                 }
 
-                // update scrollbar/heights similar to vanilla behaviour
+                // Fix scrollbar sizing - this is the key fix based on DeepWiki research
                 if (overviewGui != null)
                 {
                     try
                     {
-                        var stackList = Traverse.Create(overviewGui).Method("GetFlatList", "stacklist").GetValue();
+                        // Get the flat list component
+                        var stackListTraverse = Traverse.Create(overviewGui).Method("GetFlatList", "stacklist");
+                        var stackList = stackListTraverse.GetValue();
+                        
                         if (stackList != null)
                         {
+                            // Force recalculation of total height for our limited items
                             Traverse.Create(stackList).Method("CalcTotalHeight").GetValue();
-                            var scrollbar = Traverse.Create(overviewGui).Method("GetScrollbar", "scrollbar").GetValue();
+                            
+                            // Get the scrollbar
+                            var scrollbarTraverse = Traverse.Create(overviewGui).Method("GetScrollbar", "scrollbar");
+                            var scrollbar = scrollbarTraverse.GetValue();
+                            
                             if (scrollbar != null)
                             {
+                                // Get bounds information
                                 var insideBounds = Traverse.Create(stackList).Property("insideBounds").GetValue();
-                                var fixedHeight = Traverse.Create(insideBounds).Property("fixedHeight").GetValue<double>();
-                                Traverse.Create(scrollbar).Method("SetHeights", (float)listHeight, (float)fixedHeight).GetValue();
+                                var contentHeight = Traverse.Create(insideBounds).Property("fixedHeight").GetValue<double>();
+                                
+                                // Get the visible area height (clipHeight) from the stacklist bounds
+                                var stackListBounds = Traverse.Create(stackList).Property("Bounds").GetValue();
+                                var clipHeight = Traverse.Create(stackListBounds).Property("InnerHeight").GetValue<double>();
+                                
+                                // Set scrollbar heights correctly: SetHeights(clipHeight, contentHeight)
+                                Traverse.Create(scrollbar).Method("SetHeights", new Type[] { typeof(float), typeof(float) })
+                                    .GetValue((float)clipHeight, (float)contentHeight);
+                                
+                                // Reset scroll position to top
+                                try
+                                {
+                                    // Try different methods to reset scroll position
+                                    Traverse.Create(scrollbar).Method("SetScrollbarPosition", new Type[] { typeof(float) })
+                                        .GetValue(0.0f);
+                                }
+                                catch
+                                {
+                                    try
+                                    {
+                                        Traverse.Create(scrollbar).Property("CurrentYPosition").SetValue(0.0);
+                                    }
+                                    catch { }
+                                }
+                                
+                                capi?.Logger?.Debug($"HandbookHistory: Fixed scrollbar - clipHeight: {clipHeight}, contentHeight: {contentHeight}");
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception scrollEx)
+                    {
+                        capi?.Logger?.Error($"HandbookHistory: Scrollbar fix failed: {scrollEx}");
+                    }
                 }
 
                 return false; // skip original FilterItems
