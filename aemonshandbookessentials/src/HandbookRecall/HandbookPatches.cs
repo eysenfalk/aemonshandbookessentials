@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Reflection;
 using HarmonyLib;
 using Vintagestory.API.Client;
 using Vintagestory.GameContent;
@@ -16,36 +15,14 @@ public static class HandbookPatches
         try
         {
             var instanceTraverser = Traverse.Create(__instance);
-            var overviewGui = instanceTraverser.Field("overviewGui").GetValue();
             var capi = instanceTraverser.Field("capi").GetValue<ICoreClientAPI>();
 
             // preserve vanilla pause/unpause behaviour
             if (capi != null && capi.IsSinglePlayer && !capi.OpenedToLan && !capi.Settings.Bool["noHandbookPause"])
                 capi.PauseGame(false);
 
-            if (overviewGui != null)
-            {
-                var searchFieldObject = Traverse.Create(overviewGui).Field("searchField").GetValue();
-                if (searchFieldObject != null)
-                {
-                    var searchFieldType = searchFieldObject.GetType();
-
-                    var setMethod = searchFieldType.GetMethod("SetValue", [typeof(string), typeof(bool)]);
-                    if (setMethod != null)
-                    {
-                        // Clear search field without triggering text changed event
-                        setMethod.Invoke(searchFieldObject, [string.Empty, false]);
-                    }
-
-                    else
-                    {
-                        setMethod = searchFieldType.GetMethod("SetValue", [typeof(string)]);
-                        if (setMethod != null)
-                            // Clear search field without triggering text changed event
-                            setMethod.Invoke(searchFieldObject, [string.Empty]);
-                    }
-                }
-            }
+            // Removed search field clearing functionality as requested by user
+            // We no longer clear the search field or reset currentSearchText
         }
         catch
         {

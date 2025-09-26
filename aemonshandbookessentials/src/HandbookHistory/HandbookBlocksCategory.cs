@@ -10,40 +10,53 @@ using Vintagestory.GameContent;
 namespace AemonsHandbookEssentials.HandbookHistory;
 
 [HarmonyPatch]
-public static class HandbookItemsCategory
+public static class HandbookBlocksCategory
 {
-    // Patch genTabs to add the new "Items" tab
+    // Patch genTabs to add the new "Blocks" tab
     [HarmonyPostfix]
     [HarmonyPatch(typeof(GuiDialogSurvivalHandbook), "genTabs")]
-    public static void AddItemsTab(GuiDialogSurvivalHandbook __instance, ref GuiTab[] __result, ref int curTab)
+    public static void AddBlocksTab(GuiDialogSurvivalHandbook __instance, ref GuiTab[] __result, ref int curTab)
     {
         try
         {
             var tabs = __result.ToList();
             var currentCategoryCode = Traverse.Create(__instance).Field("currentCatgoryCode").GetValue<string>();
             
-            // Find the position to insert the "Items" tab (after "Blocks & Items")
+            // Find the position to insert the "Blocks" tab (after "Items Only" tab)
             int insertIndex = -1;
             for (int i = 0; i < tabs.Count; i++)
             {
-                if (tabs[i] is HandbookTab tab && tab.CategoryCode == "stack")
+                if (tabs[i] is HandbookTab tab && tab.CategoryCode == "items")
                 {
                     insertIndex = i + 1;
                     break;
                 }
             }
             
+            // Fallback: insert after "Blocks & Items" if "Items Only" not found
+            if (insertIndex == -1)
+            {
+                for (int i = 0; i < tabs.Count; i++)
+                {
+                    if (tabs[i] is HandbookTab tab && tab.CategoryCode == "stack")
+                    {
+                        insertIndex = i + 1;
+                        break;
+                    }
+                }
+            }
+            
             if (insertIndex > 0)
             {
-                // Create the new "Items" tab
-                var itemsTab = new HandbookTab()
+                // Create the new "Blocks" tab
+                var blocksTab = new HandbookTab()
                 {
                     DataInt = insertIndex,
-                    Name = Lang.Get("handbook-category-items", "Items"),
-                    CategoryCode = "items"
+                    Name = "Blocks Only",  // Direct name instead of Lang.Get for now
+                    CategoryCode = "blocks"  // Changed from "items" to "blocks"
                 };
                 
-                tabs.Insert(insertIndex, itemsTab);
+                tabs.Insert(insertIndex, blocksTab);
                 
                 // Update DataInt for subsequent tabs
                 for (int i = insertIndex + 1; i < tabs.Count; i++)
@@ -52,7 +65,7 @@ public static class HandbookItemsCategory
                 }
                 
                 // Adjust curTab if needed
-                if (currentCategoryCode == "items")
+                if (currentCategoryCode == "blocks")
                 {
                     curTab = insertIndex;
                 }
@@ -68,27 +81,27 @@ public static class HandbookItemsCategory
         {
             // Log error but don't break the game
             var capi = Traverse.Create(__instance).Field("capi").GetValue<ICoreClientAPI>();
-            capi?.Logger?.Error("HandbookItemsCategory: Error in AddItemsTab: " + ex.Message);
+            capi?.Logger?.Error("HandbookBlocksCategory: Error in AddBlocksTab: " + ex.Message);
         }
     }
 
-    // Patch FilterItems to handle the new "items" category
-    [HarmonyPrefix]
+    // Patch FilterItems to handle the new "blocks" category
+    [HarmonyPrefix] 
     [HarmonyPatch(typeof(GuiDialogHandbook), "FilterItems")]
-    public static bool FilterItemsForItemsCategory(GuiDialogHandbook __instance)
+    public static bool FilterItemsForBlocksCategory(GuiDialogHandbook __instance)
     {
         try
         {
             var trav = Traverse.Create(__instance);
             string? currentCategoryCode = trav.Field("currentCatgoryCode").GetValue<string?>();
             
-            // Only handle items category, let original method run for everything else
-            if (currentCategoryCode != "items") 
+            // Only handle blocks category, let original method run for everything else
+            if (currentCategoryCode != "blocks") 
             {
                 return true; // let original run
             }
             
-            // Handle items category by showing only items (not blocks)
+            // Handle blocks category by showing only blocks (not items)
             var capi = trav.Field("capi").GetValue<ICoreClientAPI>();
             var currentSearchText = trav.Field("currentSearchText").GetValue<string>() ?? "";
             var allPages = trav.Field("allHandbookPages").GetValue<List<GuiHandbookPage>>();
@@ -110,8 +123,8 @@ public static class HandbookItemsCategory
                 {
                     if (page.IsDuplicate) continue;
                     
-                    // Filter to show only items (not blocks)
-                    if (!IsItemPage(page)) continue;
+                    // Filter to show only blocks (not items)
+                    if (!IsBlockPage(page)) continue;
                     
                     float weight = 1;
                     bool matched = true;
@@ -144,25 +157,25 @@ public static class HandbookItemsCategory
                     shownPages.Add(weightedPage.Page);
                 }
                 
-                capi?.Logger?.Debug($"HandbookItemsCategory: Showing {foundPages.Count} items pages (search: '{currentSearchText}')");
+                capi?.Logger?.Debug($"HandbookBlocksCategory: Showing {foundPages.Count} blocks pages (search: '{currentSearchText}')");
             }
 
-            return false; // skip original FilterItems for items category
+            return false; // skip original FilterItems for blocks category
         }
         catch (Exception ex)
         {
             try
             {
                 var capi = Traverse.Create(__instance).Field("capi").GetValue<ICoreClientAPI>();
-                capi?.Logger?.Error("HandbookItemsCategory: FilterItemsForItemsCategory failed: " + ex);
+                capi?.Logger?.Error("HandbookBlocksCategory: FilterItemsForBlocksCategory failed: " + ex);
             }
             catch { }
             return true; // fallback to original
         }
     }
 
-    // Helper method to determine if a handbook page represents an item
-    private static bool IsItemPage(GuiHandbookPage page)
+    // Helper method to determine if a handbook page represents a block
+    private static bool IsBlockPage(GuiHandbookPage page)
     {
         try
         {
@@ -175,35 +188,22 @@ public static class HandbookItemsCategory
                     
                 if (itemStackField?.GetValue(itemStackPage) is ItemStack stack)
                 {
-                    return stack.Class == EnumItemClass.Item;
+                    return stack.Class == EnumItemClass.Block;
                 }
             }
             
-            // Fallback: check page code for item-like patterns
+            // Fallback: check page code for block-like patterns
             var pageCode = page.PageCode?.ToLowerInvariant() ?? "";
             
-            // Common item prefixes/patterns (exclude blocks)
-            return (pageCode.Contains("item-") || 
-                    pageCode.StartsWith("tool-") ||
-                    pageCode.StartsWith("knife") ||
-                    pageCode.StartsWith("axe") ||
-                    pageCode.StartsWith("pickaxe") ||
-                    pageCode.StartsWith("spear") ||
-                    pageCode.StartsWith("sword") ||
-                    pageCode.StartsWith("armor") ||
-                    pageCode.Contains("ingot") ||
-                    pageCode.Contains("ore") ||
-                    pageCode.Contains("raw") ||
-                    pageCode.Contains("cooked") ||
-                    pageCode.Contains("seeds") ||
-                    pageCode.Contains("fruit")) &&
-                   // Exclude block patterns
-                   !pageCode.Contains("block-") &&
-                   !pageCode.Contains("planks") &&
-                   !pageCode.Contains("brick") &&
-                   !pageCode.Contains("cobble") &&
-                   !pageCode.StartsWith("stone") &&
-                   !pageCode.StartsWith("clay");
+            // Common block prefixes/patterns
+            return pageCode.Contains("block-") || 
+                   pageCode.StartsWith("stone") || 
+                   pageCode.StartsWith("wood") ||
+                   pageCode.StartsWith("clay") ||
+                   pageCode.StartsWith("metal") ||
+                   pageCode.Contains("planks") ||
+                   pageCode.Contains("brick") ||
+                   pageCode.Contains("cobble");
         }
         catch
         {
@@ -211,7 +211,7 @@ public static class HandbookItemsCategory
         }
     }
 
-    // Helper class for weighted pages (matches the original implementation)
+    // Helper class for weighted pages
     private class WeightedHandbookPage
     {
         public GuiHandbookPage Page { get; set; } = null!;

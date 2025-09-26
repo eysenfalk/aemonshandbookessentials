@@ -15,7 +15,7 @@ namespace AemonsHandbookEssentials.HandbookHistory
         private static readonly LinkedList<string> RecentPages = new LinkedList<string>();
         private const int MaxRecent = 30;
 
-        // Inject a "History" tab into the survival handbook tabs (insert after 'items' or 'stack')
+        // Inject a "History" tab into the survival handbook tabs (insert after both items and blocks tabs)
         [HarmonyPostfix]
         [HarmonyPatch(typeof(GuiDialogSurvivalHandbook), "genTabs")]
         public static void AddHistoryTab(GuiDialogSurvivalHandbook __instance, ref GuiTab[] __result, ref int curTab)
@@ -26,13 +26,42 @@ namespace AemonsHandbookEssentials.HandbookHistory
 
                 string? currentCategoryCode = Traverse.Create(__instance).Field("currentCatgoryCode").GetValue<string?>();
 
+                // Find the position to insert the "History" tab (after both "items" and "blocks" tabs)
                 int insertIndex = -1;
+                
+                // Look for blocks tab first (should be last of the items/blocks tabs)
                 for (int i = 0; i < tabs.Count; i++)
                 {
-                    if (tabs[i] is HandbookTab ht && (ht.CategoryCode == "items" || ht.CategoryCode == "stack"))
+                    if (tabs[i] is HandbookTab ht && ht.CategoryCode == "blocks")
                     {
                         insertIndex = i + 1;
-                        if (ht.CategoryCode == "items") break;
+                        break;
+                    }
+                }
+                
+                // Fallback: look for items tab if blocks not found
+                if (insertIndex == -1)
+                {
+                    for (int i = 0; i < tabs.Count; i++)
+                    {
+                        if (tabs[i] is HandbookTab ht && ht.CategoryCode == "items")
+                        {
+                            insertIndex = i + 1;
+                            break;
+                        }
+                    }
+                }
+                
+                // Fallback: insert after "Blocks & Items" if neither found
+                if (insertIndex == -1)
+                {
+                    for (int i = 0; i < tabs.Count; i++)
+                    {
+                        if (tabs[i] is HandbookTab ht && (ht.CategoryCode == "items" || ht.CategoryCode == "stack"))
+                        {
+                            insertIndex = i + 1;
+                            if (ht.CategoryCode == "items") break;
+                        }
                     }
                 }
 
@@ -221,14 +250,14 @@ namespace AemonsHandbookEssentials.HandbookHistory
         // When the 'history' category is active, populate the shownHandbookPages list from our MRU
         [HarmonyPrefix]
         [HarmonyPatch(typeof(GuiDialogHandbook), "FilterItems")]
-        public static bool FilterItemsWithHistoryTracking(GuiDialogHandbook __instance)
+        public static bool FilterItemsHistoryOnly(GuiDialogHandbook __instance)
         {
             try
             {
                 var trav = Traverse.Create(__instance);
                 string? currentCategoryCode = trav.Field("currentCatgoryCode").GetValue<string?>();
                 
-                // For non-history categories, let original method run
+                // Only handle history category, let original method run for everything else
                 if (currentCategoryCode != "history") 
                 {
                     return true; // let original run
@@ -239,11 +268,13 @@ namespace AemonsHandbookEssentials.HandbookHistory
                 var currentSearchText = trav.Field("currentSearchText").GetValue<string>() ?? "";
                 var allPages = trav.Field("allHandbookPages").GetValue<List<GuiHandbookPage>>();
                 var shownPages = trav.Field("shownHandbookPages").GetValue<List<IFlatListItem>>();
-                var loading = trav.Field("loadingPagesAsync").GetValue<bool>();
-                var overviewGui = trav.Field("overviewGui").GetValue();
+                var loading = trav.Field("loadingPagesAsync").GetValue() as bool? ?? false;
 
                 if (shownPages == null) return true; // defensive
                 shownPages.Clear();
+
+                // Declare foundPages at method level to avoid scope issues
+                var foundPages = new List<GuiHandbookPage>();
 
                 if (!loading && allPages != null)
                 {
@@ -258,7 +289,7 @@ namespace AemonsHandbookEssentials.HandbookHistory
                             if (!string.IsNullOrEmpty(key) && !pageMap.ContainsKey(key)) 
                             {
                                 pageMap[key] = p;
-                            }
+                              }
                         }
                         catch { }
                     }
@@ -272,8 +303,6 @@ namespace AemonsHandbookEssentials.HandbookHistory
                     // Process search text like vanilla does (convert to lowercase, handle search terms)
                     string searchLower = currentSearchText.ToLowerInvariant();
                     bool hasSearch = !string.IsNullOrEmpty(searchLower);
-                    
-                    var foundPages = new List<GuiHandbookPage>();
 
                     foreach (string key in snapshot)
                     {
@@ -315,56 +344,49 @@ namespace AemonsHandbookEssentials.HandbookHistory
                     capi?.Logger?.Debug($"HandbookHistory: Showing {foundPages.Count} history pages (search: '{currentSearchText}')");
                 }
 
-                // Fix scrollbar sizing - this is the key fix based on DeepWiki research
+                // Now handle scrollbar using the exact vanilla pattern
+                var overviewGui = trav.Field("overviewGui").GetValue();
                 if (overviewGui != null)
                 {
                     try
                     {
-                        // Get the flat list component
-                        var stackListTraverse = Traverse.Create(overviewGui).Method("GetFlatList", "stacklist");
-                        var stackList = stackListTraverse.GetValue();
-                        
-                        if (stackList != null)
+                        // Call the vanilla scrollbar fix pattern exactly as the original does
+                        var stacklist = Traverse.Create(overviewGui).Method("GetFlatList", "stacklist").GetValue();
+                        if (stacklist != null)
                         {
-                            // Force recalculation of total height for our limited items
-                            Traverse.Create(stackList).Method("CalcTotalHeight").GetValue();
+                            capi?.Logger?.Debug($"HandbookHistory: Found stacklist, attempting scrollbar fix for {foundPages.Count} pages");
                             
-                            // Get the scrollbar
-                            var scrollbarTraverse = Traverse.Create(overviewGui).Method("GetScrollbar", "scrollbar");
-                            var scrollbar = scrollbarTraverse.GetValue();
+                            // Step 1: CalcTotalHeight (critical!)
+                            Traverse.Create(stacklist).Method("CalcTotalHeight").GetValue();
                             
+                            // Step 2: Get scrollbar and set heights
+                            var scrollbar = Traverse.Create(overviewGui).Method("GetScrollbar", "scrollbar").GetValue();
                             if (scrollbar != null)
                             {
-                                // Get bounds information
-                                var insideBounds = Traverse.Create(stackList).Property("insideBounds").GetValue();
-                                var contentHeight = Traverse.Create(insideBounds).Property("fixedHeight").GetValue<double>();
+                                var listHeight = trav.Field("listHeight").GetValue<double>();
+                                var insideBounds = Traverse.Create(stacklist).Property("insideBounds").GetValue();
+                                var totalHeight = Traverse.Create(insideBounds).Property("fixedHeight").GetValue<double>();
                                 
-                                // Get the visible area height (clipHeight) from the stacklist bounds
-                                var stackListBounds = Traverse.Create(stackList).Property("Bounds").GetValue();
-                                var clipHeight = Traverse.Create(stackListBounds).Property("InnerHeight").GetValue<double>();
+                                // For empty lists, ensure scrollbar is properly sized
+                                if (foundPages.Count == 0)
+                                {
+                                    // When no items, total height should be 0 or very small
+                                    totalHeight = 0;
+                                }
                                 
-                                // Set scrollbar heights correctly: SetHeights(clipHeight, contentHeight)
                                 Traverse.Create(scrollbar).Method("SetHeights", new Type[] { typeof(float), typeof(float) })
-                                    .GetValue((float)clipHeight, (float)contentHeight);
+                                    .GetValue((float)listHeight, (float)totalHeight);
                                 
-                                // Reset scroll position to top
-                                try
-                                {
-                                    // Try different methods to reset scroll position
-                                    Traverse.Create(scrollbar).Method("SetScrollbarPosition", new Type[] { typeof(float) })
-                                        .GetValue(0.0f);
-                                }
-                                catch
-                                {
-                                    try
-                                    {
-                                        Traverse.Create(scrollbar).Property("CurrentYPosition").SetValue(0.0);
-                                    }
-                                    catch { }
-                                }
-                                
-                                capi?.Logger?.Debug($"HandbookHistory: Fixed scrollbar - clipHeight: {clipHeight}, contentHeight: {contentHeight}");
+                                capi?.Logger?.Debug($"HandbookHistory: Fixed scrollbar for history - visible: {listHeight}, total: {totalHeight}, pages: {foundPages.Count}");
                             }
+                            else
+                            {
+                                capi?.Logger?.Warning("HandbookHistory: Could not find scrollbar component");
+                            }
+                        }
+                        else
+                        {
+                            capi?.Logger?.Warning("HandbookHistory: Could not find stacklist component");
                         }
                     }
                     catch (Exception scrollEx)
@@ -372,15 +394,19 @@ namespace AemonsHandbookEssentials.HandbookHistory
                         capi?.Logger?.Error($"HandbookHistory: Scrollbar fix failed: {scrollEx}");
                     }
                 }
+                else
+                {
+                    capi?.Logger?.Warning("HandbookHistory: overviewGui is null");
+                }
 
-                return false; // skip original FilterItems
+                return false; // skip original FilterItems for history category
             }
             catch (Exception ex)
             {
                 try
                 {
                     var capi = Traverse.Create(__instance).Field("capi").GetValue<ICoreClientAPI>();
-                    capi?.Logger?.Error("HandbookRecentCategory: FilterItemsWithHistoryTracking failed: " + ex);
+                    capi?.Logger?.Error("HandbookRecentCategory: FilterItemsHistoryOnly failed: " + ex);
                 }
                 catch { }
                 return true; // fallback to original

@@ -4,7 +4,6 @@ using System.Linq;
 using HarmonyLib;
 using Vintagestory.API.Common;
 using Vintagestory.API.Client;
-using AemonsHandbookEssentials.HandbookRecall;
 using AemonsHandbookEssentials.Utils;
 
 namespace AemonsHandbookEssentials;

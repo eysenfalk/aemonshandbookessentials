@@ -142,6 +142,9 @@
         <!-- include any external DLLs placed in external/ when in DLL-mode -->
         <Reference Include="$(ExternalLibDir)/**/*.dll" Private="false" Condition="'$(ExternalLibDir)' != ''" />
     </ItemGroup>
+    <ItemGroup>
+      <None Include="src\HandbookHistory\HandbookBlocksCategory.cs" />
+    </ItemGroup>
 
     <!-- Creates local settings file -->
     <Target Name="EnsureSettingsJson" BeforeTargets="ModInfo" Condition="!Exists('Properties\localSettings.props')">
